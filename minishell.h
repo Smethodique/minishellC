@@ -2,19 +2,6 @@
 #ifndef MINISHELL_H
 #define MINISHELL_H
 
-typedef struct s_history
-{
-    char *line;
-    struct s_history *next;
-    int index;
-} t_history;
-
-typedef struct s_history_manager
-{
-    t_history *head;
-    t_history *tail;
-    int count;
-} t_history_manager;
 
 typedef struct s_token {
     int type;
@@ -25,14 +12,14 @@ typedef struct s_token {
 
 
 
-
-t_history_manager *create_history_manager(void);
-void add_history_entry(t_history_manager *manager, const char *line);
-t_history **get_history(t_history_manager *manager);
-void print_history(t_history_manager *manager);
-void free_history_manager(t_history_manager *manager);
-void make_history(t_history_manager *manager);
-void free_history(t_history_manager *manager);
+void init_shell();
+void sigint_handler(int sig);
+void sigquit_handler(int sig);
+void all_signals();
+t_token *new_token(int type, const char *value);
+void add_token(t_token **head, t_token *new_token);
+t_token *tokenize_input(const char *input);
+void print_tokens(t_token *tokens);
 
 
 #include <stdio.h>

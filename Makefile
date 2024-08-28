@@ -1,5 +1,5 @@
 NAME = minishell
-SRCS =  main.c history.c
+SRCS =  main.c  signals.c parser.c
 OBJS = $(SRCS:.c=.o)
 LIBFT = 1337Libft/libft.a
 CC = cc
