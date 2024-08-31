@@ -1,26 +1,5 @@
-
 #ifndef MINISHELL_H
 #define MINISHELL_H
-
-
-typedef struct s_token {
-    int type;
-    char *value;
-    struct s_token *next;
-} t_token;
-
-
-
-
-void init_shell();
-void sigint_handler(int sig);
-void sigquit_handler(int sig);
-void all_signals();
-t_token *new_token(int type, const char *value);
-void add_token(t_token **head, t_token *new_token);
-t_token *tokenize_input(const char *input);
-void print_tokens(t_token *tokens);
-
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,5 +17,73 @@ void print_tokens(t_token *tokens);
 #include <readline/history.h>
 #include <errno.h>
 #include "1337Libft/libft.h"
+
+typedef enum {
+   COMMANDE,
+   ARG,
+    REDIRECTION,
+    PIPE,
+    APPEND,
+    INPUT,
+    OUTPUT,
+    HEREDOC,
+    FILENAME,
+    DELIMITER,
+    OPTION,
+    ENV_VAR,
+    SINGLE_QUOTE,
+    DOUBLE_QUOTE,
+
+} t_token_type;
+
+typedef struct s_token {
+    int type;
+    char *value;
+    struct s_token *next;
+} t_token;
+
+typedef struct s_command {
+    char *name;
+    char **args;
+    int arg_count;
+    int pipe_next;
+    struct s_redirection *redirections;
+    struct s_command *next;
+} t_command;
+
+typedef struct s_redirection {
+    int type;  // INPUT, OUTPUT, or APPEND
+    char *filename;
+    struct s_redirection *next;
+} t_redirection;
+
+typedef struct s_tokenizer_params {
+    const char *input;
+    int i;
+    int len;
+    int expect_command;
+    int expect_filename;
+    t_token **tokens;
+} t_tokenizer_params;
+
+// Existing function prototypes
+void init_shell();
+void sigint_handler(int sig);
+void sigquit_handler(int sig);
+void all_signals();
+t_token *new_token(int type, const char *value);
+void add_token(t_token **head, t_token *new_token);
+t_token *tokenize_input(const char *input);
+void print_tokens(t_token *tokens);
+
+// New function prototypes for command parsing
+t_command *new_command();
+void add_argument(t_command *cmd, char *arg);
+void add_redirection(t_command *cmd, int type, char *filename);
+void add_command(t_command **list, t_command *cmd);
+t_command *parse_tokens(t_token *tokens);
+void free_command(t_command *cmd);
+void free_command_list(t_command *list);
+void print_command_list(t_command *list);
 
 #endif
