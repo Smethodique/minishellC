@@ -28,10 +28,11 @@ t_token *tokenize_input(const char *input) {
     int start = 0;
     int expect_command = 1;
     int expect_heredoc_delim = 0;
-    int expect_filename = 0;   
+    int expect_filename = 0;
     char current_char;
     char next_char;
     char quote_char = '\0';
+
 
     while (i < len) {
         current_char = input[i];
@@ -51,13 +52,13 @@ t_token *tokenize_input(const char *input) {
     while (i < len && isspace(input[i])) {
         i++;
     }
-    
+
     start = i;
     // Capture the delimiter until a whitespace or end of input is encountered
     while (i < len && !isspace(input[i])) {
         i++;
     }
-    
+
     char *delimiter = ft_substr(input, start, i - start);
     add_token(&tokens, new_token(DELIMITER, delimiter));
     free(delimiter);
@@ -66,31 +67,91 @@ t_token *tokenize_input(const char *input) {
 }
 
         // Handle quotes
-        if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
-            quote_char = current_char;
-            start = i;
-            i++;
-            while (i < len && input[i] != quote_char) {
-                if (input[i] == '\\' && quote_char == '"' && i + 1 < len) {
-                    i++; // Skip escaped character in double quotes
+if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
+    quote_char = current_char;
+    i++;
+    start = i;
+
+    // Loop to find the closing quote
+    while (i < len && input[i] != quote_char) {
+        i++;
+    }
+
+    if (i < len) {
+        char *quoted = ft_substr(input, start, i - start);
+
+        // Check if there is an environment variable in the quoted string
+        if (quote_char == '"') {  // Only replace in double quotes
+            char *result = ft_strdup("");
+            char *temp = quoted;
+            char *env_pos = strchr(temp, '$');
+
+            while (env_pos) {
+                // Get the part before the environment variable
+                char *before_env = ft_substr(temp, 0, env_pos - temp);
+                char *env_name;
+                char *env_value;
+                size_t env_name_len = 0;
+
+                // Determine the end of the environment variable name
+                if (env_pos[1] == '{') {
+                    env_name_len++;
+                    while (env_pos[1 + env_name_len] != '}' && (isalnum(env_pos[1 + env_name_len]) || env_pos[1 + env_name_len] == '_')) {
+                        env_name_len++;
+                    }
+                    env_name_len++; // Include closing brace
+                } else {
+                    while (isalnum(env_pos[1 + env_name_len]) || env_pos[1 + env_name_len] == '_') {
+                        env_name_len++;
+                    }
                 }
-                i++;
+
+                // Extract and fetch the environment variable value
+                if (env_name_len > 0) {
+                    env_name = ft_substr(env_pos + 1, 0, env_name_len);
+                    env_value = getenv(env_name);
+                    free(env_name);
+                } else {
+                    env_value = NULL;
+                }
+
+                // Replace the environment variable with its value if it exists
+                if (env_value) {
+                    char *temp_result = ft_strjoin(result, before_env);
+                    result = ft_strjoin(temp_result, env_value);
+                    temp = env_pos + 1 + env_name_len;
+                } else {
+                    // If no valid environment variable, append the "$" and continue
+                    char *temp_result = ft_strjoin(result, before_env);
+                    result = ft_strjoin(temp_result, "$");
+                    temp = env_pos + 1;
+                }
+
+                env_pos = strchr(temp, '$');
             }
-            if (i < len) {
-                i++; // Include closing quote
-                char *quoted_value = ft_substr(input, start, i - start);
-                int token_type = expect_command ? COMMANDE : ARG;
-                add_token(&tokens, new_token(token_type, quoted_value));
-                free(quoted_value);
-                expect_command = 0;
-            } else {
-                ft_putstr_fd("Error: unclosed quote\n", 2);
-                // Free tokens and return NULL (error handling code here)
-                return NULL;
-            }
-            quote_char = '\0';
-            continue;
+
+            // Add the remaining part of the string after the last environment variable
+            char *final_result = ft_strjoin(result, temp);
+
+            // Add the final result as a token
+            add_token(&tokens, new_token(ARG, final_result));
+        } else {
+            // No environment variable found, just add the quoted string as a token
+            add_token(&tokens, new_token(ARG, quoted));
         }
+
+        i++;  // Skip closing quote
+    } else {
+        ft_putstr_fd("Error: unclosed quote\n", 2);
+        // Free tokens and return NULL (error handling code here)
+        return NULL;
+    }
+    quote_char = '\0';
+    continue;
+}
+
+
+
 
         // Skip whitespace outside quotes
         if (isspace(current_char) && quote_char == '\0') {
@@ -134,45 +195,31 @@ t_token *tokenize_input(const char *input) {
             expect_filename = 0;
             continue;
         }
-      //handle env var
-
-      unsigned int i = 0;
-while (i < len && input[i]) {
-    if (input[i] == '$') {
-        size_t var_start = i + 1; // Skip the '$' character
-
-        // Capture the environment variable name
-        while (i < len && (isalnum((unsigned char)input[i]) || input[i] == '_')) {
+ //handle env var
+        // remove quotes
+        if (current_char == '$' && quote_char == '\0') {
+            start = i;
             i++;
-        }
-
-        if (var_start == i) {
-            // Handle the case where there is nothing after the '$'
-            add_token(&tokens, new_token(ENV_VAR, strdup("$")));
+            if (i < len && input[i] == '{') {
+                i++;
+                if (i < len) i++; // Skip closing brace
+            } else if (i < len && (isalnum(input[i]) || input[i] == '_')) {
+                while (i < len && (isalnum(input[i]) || input[i] == '_')) i++;
+            } else {
+                add_token(&tokens, new_token(ARG, "$"));
+                continue;
+            }
+            char *env_var = ft_substr(input, start, i - start);
+            add_token(&tokens, new_token(ENV_VAR, env_var));
             continue;
         }
 
-        char *env_var_name = ft_substr(input, var_start, i - var_start);
 
-        // Expand the environment variable
-        char *env_value = getenv(env_var_name);
 
-        if (env_value) {
-            add_token(&tokens, new_token(ENV_VAR, env_value));
-        } else {
-            // If the environment variable is not found, add an empty string
-            add_token(&tokens, new_token(ENV_VAR, ""));
-        }
 
-        free(env_var_name);
-    } else {
-        i++;
-    }
-}
-            
         // Handle command or argument
         start = i;
-        while (i < len && !isspace(input[i]) && input[i] != '|' && input[i] != '<' && input[i] != '>' && input[i] != '\'' && input[i] != '"') {
+        while (i < len && !isspace(input[i]) && input[i] != '|' && input[i] != '<' && input[i] != '>' && input[i] != '\'' && input[i] != '"' && input[i] != '$') {
             i++;
         }
         char *word = ft_substr(input, start, i - start);
@@ -182,6 +229,9 @@ while (i < len && input[i]) {
         } else if (word[0] == '-') {
             add_token(&tokens, new_token(OPTION, word));
         } else {
+            //dont add arg if it start with $ or if it is empty
+            printf("hiiii\n");
+            if (word[0] != '"' && ft_strlen(word) > 0)
             add_token(&tokens, new_token(ARG, word));
         }
         free(word);
@@ -305,6 +355,7 @@ t_command *parse_tokens(t_token *tokens) {
                 add_command(&command_list, current_command);
             }
             char *env_value = getenv(tokens->value + 1);
+            printf("tokens->value + 1: %s\n", tokens->value + 1);
             if (env_value) {
                 add_argument(current_command, env_value);
             } else {
@@ -402,7 +453,7 @@ void print_command_list(t_command *list) {
         } else {
             printf("Command: (unnamed)\n");
         }
-        
+
         printf("Arguments: ");
         for (int i = 0; i < list->arg_count; i++) {
             printf("%s ", list->args[i]);
