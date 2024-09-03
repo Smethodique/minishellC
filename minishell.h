@@ -33,6 +33,7 @@ typedef enum {
     ENV_VAR,
     SINGLE_QUOTE,
     DOUBLE_QUOTE,
+    EXIT_STATUS,
 
 } t_token_type;
 

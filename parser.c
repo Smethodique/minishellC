@@ -20,6 +20,12 @@ t_token *new_token(int type, const char *value) {
     token->next = NULL;
     return token;
 }
+int get_status()
+{
+    int status;
+    waitpid(-1, &status, WNOHANG);
+    return status;
+}
 
 t_token *tokenize_input(const char *input) {
     t_token *tokens = NULL;
@@ -34,9 +40,13 @@ t_token *tokenize_input(const char *input) {
     char quote_char = '\0';
 
 
+
     while (i < len) {
         current_char = input[i];
         next_char = (i + 1 < len) ? input[i + 1] : '\0';
+
+
+
 
         // Handle heredoc
         if (current_char == '<' && next_char == '<' && quote_char == '\0') {
@@ -73,18 +83,29 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
     start = i;
 
     // Loop to find the closing quote
-    while (i < len && input[i] != quote_char) {
+    while (i < len) {
+        if (input[i] == '\\' && quote_char == '"') {
+            // In double quotes, backslash is special only for ", \, and $
+            if (i + 1 < len && (input[i+1] == '"' || input[i+1] == '\\' || input[i+1] == '$')) {
+                i++; // Skip the backslash
+            }
+        } else if (input[i] == quote_char) {
+            break;
+        }
         i++;
     }
+
 
     if (i < len) {
         char *quoted = ft_substr(input, start, i - start);
 
-        // Check if there is an environment variable in the quoted string
+        // Check if there is an environment variable OR  exit_status in the quoted string
         if (quote_char == '"') {  // Only replace in double quotes
             char *result = ft_strdup("");
             char *temp = quoted;
             char *env_pos = strchr(temp, '$');
+            // hand
+
 
             while (env_pos) {
                 // Get the part before the environment variable
@@ -121,10 +142,37 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
                     result = ft_strjoin(temp_result, env_value);
                     temp = env_pos + 1 + env_name_len;
                 } else {
-                    // If no valid environment variable, append the "$" and continue
+                    // If no valid environment variable, replace with the it with empty string
+                    //if we have $? we add the exit status
+
                     char *temp_result = ft_strjoin(result, before_env);
-                    result = ft_strjoin(temp_result, "$");
-                    temp = env_pos + 1;
+                    result = ft_strjoin(temp_result, "");
+                    temp = env_pos + 1 + env_name_len;
+                    //if we have just dollar sign we add it to the result skip the space
+
+                    if (env_pos[1] == '\0' || isspace(env_pos[1]))
+                    {
+                        char *temp_result = ft_strjoin(result, "$");
+                        result = ft_strjoin(temp_result, "");
+                    }
+                    //if we have $? we add the exit status token
+                    int status = get_status();
+                    if (env_pos[1] == '?') {
+                        // Replace the $? with the exit status
+
+                        char exit_status_str[12];
+                        snprintf(exit_status_str, sizeof(exit_status_str), "%d", WEXITSTATUS(status));
+                        char *temp_result = ft_strjoin(result, before_env);
+                        result = ft_strjoin(temp_result, exit_status_str);
+                        temp = env_pos + 2;
+                        env_pos = strchr(temp, '$');
+                        continue;
+                    }
+
+
+
+
+
                 }
 
                 env_pos = strchr(temp, '$');
@@ -132,8 +180,9 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
 
             // Add the remaining part of the string after the last environment variable
             char *final_result = ft_strjoin(result, temp);
-
             // Add the final result as a token
+            //if the final result is $? dont add it as a ARG
+
             add_token(&tokens, new_token(ARG, final_result));
         } else {
             // No environment variable found, just add the quoted string as a token
@@ -153,9 +202,15 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
 
 
 
+
         // Skip whitespace outside quotes
         if (isspace(current_char) && quote_char == '\0') {
             i++;
+            continue;
+        }
+        if (current_char == '$' && next_char == '?' && quote_char == '\0') {
+            add_token(&tokens, new_token(EXIT_STATUS, "$?"));
+            i += 2;
             continue;
         }
 
@@ -325,6 +380,7 @@ t_command *parse_tokens(t_token *tokens) {
     t_command *command_list = NULL;
     t_command *current_command = NULL;
     int expect_heredoc_delim = 0;
+    int status = get_status();
 
     if (!validate_syntax(tokens)) {
         return NULL;
@@ -404,6 +460,16 @@ t_command *parse_tokens(t_token *tokens) {
                 current_command->pipe_next = 1;
                 current_command = NULL;
                 break;
+
+            case EXIT_STATUS:
+                if (!current_command) {
+                    current_command = new_command();
+                    add_command(&command_list, current_command);
+                }
+            char exit_status_str[12];
+            snprintf(exit_status_str, sizeof(exit_status_str), "%d", WEXITSTATUS(status));
+            add_argument(current_command, exit_status_str);
+            break;
 
             default:
                 fprintf(stderr, "Error: Unexpected token type\n");
