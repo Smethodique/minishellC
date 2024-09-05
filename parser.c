@@ -27,107 +27,67 @@ int get_status()
     return status;
 }
 
-t_token *tokenize_input(const char *input) {
-    t_token *tokens = NULL;
-    int i = 0;
-    int len = strlen(input);
-    int start = 0;
-    int expect_command = 1;
-    int expect_heredoc_delim = 0;
-    int expect_filename = 0;
-    char current_char;
-    char next_char;
-    char quote_char = '\0';
-
-
-
-    while (i < len) {
-        current_char = input[i];
-        next_char = (i + 1 < len) ? input[i + 1] : '\0';
-
-
-
-
-        // Handle heredoc
-        if (current_char == '<' && next_char == '<' && quote_char == '\0') {
-            add_token(&tokens, new_token(HEREDOC, "<<"));
-            i += 2;
-            expect_heredoc_delim = 1;
-            continue;
-        }
-
-        // Handle heredoc delimiter
-   if (expect_heredoc_delim) {
-    // Skip leading whitespace
-    while (i < len && isspace(input[i])) {
-        i++;
-    }
-
-    start = i;
-    // Capture the delimiter until a whitespace or end of input is encountered
-    while (i < len && !isspace(input[i])) {
-        i++;
-    }
-
-    char *delimiter = ft_substr(input, start, i - start);
-    add_token(&tokens, new_token(DELIMITER, delimiter));
-    free(delimiter);
-    expect_heredoc_delim = 0;
-    continue;
+void handle_heredoc( int *i, t_token **tokens) {
+    add_token(tokens, new_token(HEREDOC, "<<"));
+    *i += 2;
 }
 
-        // Handle quotes
-if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
-    quote_char = current_char;
-    i++;
-    start = i;
-
-    // Loop to find the closing quote
-    while (i < len) {
-        if (input[i] == '\\' && quote_char == '"') {
-            // In double quotes, backslash is special only for ", \, and $
-            if (i + 1 < len && (input[i+1] == '"' || input[i+1] == '\\' || input[i+1] == '$')) {
-                i++; // Skip the backslash
-            }
-        } else if (input[i] == quote_char) {
-            break;
-        }
-        i++;
+// Function to handle heredoc delimiter
+void handle_heredoc_delim(const char *input, int *i, int len, t_token **tokens) {
+    while (*i < len && isspace(input[*i])) {
+        (*i)++;
     }
 
+    int start = *i;
+    while (*i < len && !isspace(input[*i])) {
+        (*i)++;
+    }
 
-    if (i < len) {
-        char *quoted = ft_substr(input, start, i - start);
+    char *delimiter = ft_substr(input, start, *i - start);
+    add_token(tokens, new_token(DELIMITER, delimiter));
+    free(delimiter);
+}
 
-        // Check if there is an environment variable OR  exit_status in the quoted string
-        if (quote_char == '"') {  // Only replace in double quotes
+// Function to handle quotes
+void handle_quotes(const char *input, int *i, int len, char quote_char, t_token **tokens) {
+    int start = ++(*i);
+
+    while (*i < len) {
+        if (input[*i] == '\\' && quote_char == '"') {
+            if (*i + 1 < len && (input[*i + 1] == '"' || input[*i + 1] == '\\' || input[*i + 1] == '$')) {
+                (*i)++;
+            }
+        } else if (input[*i] == quote_char) {
+            break;
+        }
+        (*i)++;
+    }
+
+    if (*i < len) {
+        char *quoted = ft_substr(input, start, *i - start);
+        if (quote_char == '"') {
             char *result = ft_strdup("");
             char *temp = quoted;
             char *env_pos = strchr(temp, '$');
-            // hand
-
 
             while (env_pos) {
-                // Get the part before the environment variable
                 char *before_env = ft_substr(temp, 0, env_pos - temp);
                 char *env_name;
                 char *env_value;
                 size_t env_name_len = 0;
 
-                // Determine the end of the environment variable name
                 if (env_pos[1] == '{') {
                     env_name_len++;
                     while (env_pos[1 + env_name_len] != '}' && (isalnum(env_pos[1 + env_name_len]) || env_pos[1 + env_name_len] == '_')) {
                         env_name_len++;
                     }
-                    env_name_len++; // Include closing brace
+                    env_name_len++;
                 } else {
                     while (isalnum(env_pos[1 + env_name_len]) || env_pos[1 + env_name_len] == '_') {
                         env_name_len++;
                     }
                 }
 
-                // Extract and fetch the environment variable value
                 if (env_name_len > 0) {
                     env_name = ft_substr(env_pos + 1, 0, env_name_len);
                     env_value = getenv(env_name);
@@ -136,30 +96,22 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
                     env_value = NULL;
                 }
 
-                // Replace the environment variable with its value if it exists
                 if (env_value) {
                     char *temp_result = ft_strjoin(result, before_env);
                     result = ft_strjoin(temp_result, env_value);
                     temp = env_pos + 1 + env_name_len;
                 } else {
-                    // If no valid environment variable, replace with the it with empty string
-                    //if we have $? we add the exit status
-
                     char *temp_result = ft_strjoin(result, before_env);
                     result = ft_strjoin(temp_result, "");
                     temp = env_pos + 1 + env_name_len;
-                    //if we have just dollar sign we add it to the result skip the space
 
-                    if (env_pos[1] == '\0' || isspace(env_pos[1]))
-                    {
+                    if (env_pos[1] == '\0' || isspace(env_pos[1])) {
                         char *temp_result = ft_strjoin(result, "$");
                         result = ft_strjoin(temp_result, "");
                     }
-                    //if we have $? we add the exit status token
+
                     int status = get_status();
                     if (env_pos[1] == '?') {
-                        // Replace the $? with the exit status
-
                         char exit_status_str[12];
                         snprintf(exit_status_str, sizeof(exit_status_str), "%d", WEXITSTATUS(status));
                         char *temp_result = ft_strjoin(result, before_env);
@@ -168,53 +120,131 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
                         env_pos = strchr(temp, '$');
                         continue;
                     }
-
-
-
-
-
                 }
 
                 env_pos = strchr(temp, '$');
             }
 
-            // Add the remaining part of the string after the last environment variable
             char *final_result = ft_strjoin(result, temp);
-            // Add the final result as a token
-            //if the final result is $? dont add it as a ARG
-
-            add_token(&tokens, new_token(ARG, final_result));
+            add_token(tokens, new_token(ARG, final_result));
         } else {
-            // No environment variable found, just add the quoted string as a token
-            add_token(&tokens, new_token(ARG, quoted));
+            add_token(tokens, new_token(ARG, quoted));
         }
 
-        i++;  // Skip closing quote
+        (*i)++;
     } else {
         ft_putstr_fd("Error: unclosed quote\n", 2);
-        // Free tokens and return NULL (error handling code here)
-        return NULL;
     }
-    quote_char = '\0';
-    continue;
 }
 
+// Function to handle redirections
+void handle_redirections(int *i, char current_char, char next_char, t_token **tokens, int *expect_filename) {
+    if (current_char == '<') {
+        *expect_filename = 1;
+        add_token(tokens, new_token(INPUT, "<"));
+    } else if (current_char == '>' && next_char == '>') {
+        *expect_filename = 1;
+        add_token(tokens, new_token(APPEND, ">>"));
+        (*i)++;
+    } else {
+        *expect_filename = 1;
+        add_token(tokens, new_token(OUTPUT, ">"));
+    }
+    (*i)++;
+}
 
+// Function to handle filenames
+void handle_filename(const char *input, int *i, int len, t_token **tokens) {
+    int start = *i;
+    while (*i < len && !isspace(input[*i]) && input[*i] != '|' && input[*i] != '<' && input[*i] != '>' && input[*i] != '\'' && input[*i] != '"') {
+        (*i)++;
+    }
+    char *filename = ft_substr(input, start, *i - start);
+    add_token(tokens, new_token(FILENAME, filename));
+    free(filename);
+}
 
+// Function to handle environment variables
+void handle_env_var(const char *input, int *i, int len, t_token **tokens) {
+    int start = *i;
+    (*i)++;
+    if (*i < len && input[*i] == '{') {
+        (*i)++;
+        if (*i < len) (*i)++;
+    } else if (*i < len && (isalnum(input[*i]) || input[*i] == '_')) {
+        while (*i < len && (isalnum(input[*i]) || input[*i] == '_')) (*i)++;
+    } else {
+        add_token(tokens, new_token(ARG, "$"));
+        return;
+    }
+    char *env_var = ft_substr(input, start, *i - start);
+    add_token(tokens, new_token(ENV_VAR, env_var));
+}
 
+// Function to handle commands or arguments
+void handle_command_or_argument(const char *input, int *i, int len, int *expect_command, t_token **tokens) {
+    int start = *i;
+    while (*i < len && !isspace(input[*i]) && input[*i] != '|' && input[*i] != '<' && input[*i] != '>' && input[*i] != '\'' && input[*i] != '"' && input[*i] != '$') {
+        (*i)++;
+    }
+    char *word = ft_substr(input, start, *i - start);
+    if (*expect_command) {
+        add_token(tokens, new_token(COMMANDE, word));
+        *expect_command = 0;
+    } else if (word[0] == '-') {
+        add_token(tokens, new_token(OPTION, word));
+    } else {
+        if (word[0] != '"' && ft_strlen(word) > 0) {
+            add_token(tokens, new_token(ARG, word));
+        }
+    }
+    free(word);
+}
 
-        // Skip whitespace outside quotes
+// Main tokenize function
+t_token *tokenize_input(const char *input) {
+    t_token *tokens = NULL;
+    int i = 0;
+    int len = strlen(input);
+    int expect_command = 1;
+    int expect_heredoc_delim = 0;
+    int expect_filename = 0;
+    char quote_char = '\0';
+
+    while (i < len) {
+        char current_char = input[i];
+        char next_char = (i + 1 < len) ? input[i + 1] : '\0';
+
+        if (current_char == '<' && next_char == '<' && quote_char == '\0') {
+            handle_heredoc(&i, &tokens);
+            expect_heredoc_delim = 1;
+            continue;
+        }
+
+        if (expect_heredoc_delim) {
+            handle_heredoc_delim(input, &i, len, &tokens);
+            expect_heredoc_delim = 0;
+            continue;
+        }
+
+        if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
+            quote_char = current_char;
+            handle_quotes(input, &i, len, quote_char, &tokens);
+            quote_char = '\0';
+            continue;
+        }
+
         if (isspace(current_char) && quote_char == '\0') {
             i++;
             continue;
         }
+
         if (current_char == '$' && next_char == '?' && quote_char == '\0') {
             add_token(&tokens, new_token(EXIT_STATUS, "$?"));
             i += 2;
             continue;
         }
 
-        // Handle pipes
         if (current_char == '|' && quote_char == '\0') {
             add_token(&tokens, new_token(PIPE, "|"));
             i++;
@@ -222,74 +252,23 @@ if ((current_char == '\'' || current_char == '"') && quote_char == '\0') {
             continue;
         }
 
-        // Handle other redirections
         if ((current_char == '<' || current_char == '>') && quote_char == '\0') {
-            if (current_char == '<') {
-                 expect_filename = 1;
-                add_token(&tokens, new_token(INPUT, "<"));
-            } else if (current_char == '>' && next_char == '>') {
-                expect_filename = 1;
-                add_token(&tokens, new_token(APPEND, ">>"));
-                i++;
-            } else {
-                expect_filename = 1;
-                add_token(&tokens, new_token(OUTPUT, ">"));
-            }
-            i++;
+            handle_redirections(&i, current_char, next_char, &tokens, &expect_filename);
             continue;
         }
-         if(expect_filename)
-         {
-            start = i;
-            while (i < len && !isspace(input[i]) && input[i] != '|' && input[i] != '<' && input[i] != '>' && input[i] != '\'' && input[i] != '"') {
-                i++;
-            }
-            char *filename = ft_substr(input, start, i - start);
-            add_token(&tokens, new_token(FILENAME, filename));
-            free(filename);
+
+        if (expect_filename) {
+            handle_filename(input, &i, len, &tokens);
             expect_filename = 0;
             continue;
         }
- //handle env var
-        // remove quotes
+
         if (current_char == '$' && quote_char == '\0') {
-            start = i;
-            i++;
-            if (i < len && input[i] == '{') {
-                i++;
-                if (i < len) i++; // Skip closing brace
-            } else if (i < len && (isalnum(input[i]) || input[i] == '_')) {
-                while (i < len && (isalnum(input[i]) || input[i] == '_')) i++;
-            } else {
-                add_token(&tokens, new_token(ARG, "$"));
-                continue;
-            }
-            char *env_var = ft_substr(input, start, i - start);
-            add_token(&tokens, new_token(ENV_VAR, env_var));
+            handle_env_var(input, &i, len, &tokens);
             continue;
         }
 
-
-
-
-        // Handle command or argument
-        start = i;
-        while (i < len && !isspace(input[i]) && input[i] != '|' && input[i] != '<' && input[i] != '>' && input[i] != '\'' && input[i] != '"' && input[i] != '$') {
-            i++;
-        }
-        char *word = ft_substr(input, start, i - start);
-        if (expect_command) {
-            add_token(&tokens, new_token(COMMANDE, word));
-            expect_command = 0;
-        } else if (word[0] == '-') {
-            add_token(&tokens, new_token(OPTION, word));
-        } else {
-            //dont add arg if it start with $ or if it is empty
-            printf("hiiii\n");
-            if (word[0] != '"' && ft_strlen(word) > 0)
-            add_token(&tokens, new_token(ARG, word));
-        }
-        free(word);
+        handle_command_or_argument(input, &i, len, &expect_command, &tokens);
     }
 
     return tokens;
@@ -387,25 +366,19 @@ t_command *parse_tokens(t_token *tokens) {
     }
 
     while (tokens) {
-        switch (tokens->type) {
-            case COMMANDE:
-                if (!current_command) {
-                    current_command = new_command();
-                    add_command(&command_list, current_command);
-                }
-                add_argument(current_command, tokens->value);
-                break;
-
-            case ARG:
-            case OPTION:
-                if (!current_command) {
-                    current_command = new_command();
-                    add_command(&command_list, current_command);
-                }
-                add_argument(current_command, tokens->value);
-                break;
-
-         case ENV_VAR:
+        if (tokens->type == COMMANDE) {
+            if (!current_command) {
+                current_command = new_command();
+                add_command(&command_list, current_command);
+            }
+            add_argument(current_command, tokens->value);
+        } else if (tokens->type == ARG || tokens->type == OPTION) {
+            if (!current_command) {
+                current_command = new_command();
+                add_command(&command_list, current_command);
+            }
+            add_argument(current_command, tokens->value);
+        } else if (tokens->type == ENV_VAR) {
             if (!current_command) {
                 current_command = new_command();
                 add_command(&command_list, current_command);
@@ -418,62 +391,48 @@ t_command *parse_tokens(t_token *tokens) {
                 // In bash, non-existent env vars are treated as empty strings
                 add_argument(current_command, "");
             }
-            break;
-
-            case INPUT:
-            case OUTPUT:
-            case APPEND:
-                if (!current_command) {
-                    current_command = new_command();
-                    add_command(&command_list, current_command);
-                }
-                if (!tokens->next || (tokens->next->type != FILENAME && tokens->next->type != ARG)) {
-                    fprintf(stderr, "Error: Missing target after redirection\n");
-                    return NULL;
-                }
-                add_redirection(current_command, tokens->type, tokens->next->value);
-                tokens = tokens->next; // Skip the filename token
-                break;
-
-            case HEREDOC:
-                if (!current_command) {
-                    current_command = new_command();
-                    add_command(&command_list, current_command);
-                }
-                expect_heredoc_delim = 1;
-                break;
-
-            case DELIMITER:
-                if (!expect_heredoc_delim) {
-                    fprintf(stderr, "Error: Unexpected delimiter '%s'\n", tokens->value);
-                    return NULL;
-                }
-                add_redirection(current_command, HEREDOC, tokens->value);
-                expect_heredoc_delim = 0;
-                break;
-
-            case PIPE:
-                if (!current_command) {
-                    fprintf(stderr, "Error: Pipe without a preceding command\n");
-                    return NULL;
-                }
-                current_command->pipe_next = 1;
-                current_command = NULL;
-                break;
-
-            case EXIT_STATUS:
-                if (!current_command) {
-                    current_command = new_command();
-                    add_command(&command_list, current_command);
-                }
+        } else if (tokens->type == INPUT || tokens->type == OUTPUT || tokens->type == APPEND) {
+            if (!current_command) {
+                current_command = new_command();
+                add_command(&command_list, current_command);
+            }
+            if (!tokens->next || (tokens->next->type != FILENAME && tokens->next->type != ARG)) {
+                fprintf(stderr, "Error: Missing target after redirection\n");
+                return NULL;
+            }
+            add_redirection(current_command, tokens->type, tokens->next->value);
+            tokens = tokens->next; // Skip the filename token
+        } else if (tokens->type == HEREDOC) {
+            if (!current_command) {
+                current_command = new_command();
+                add_command(&command_list, current_command);
+            }
+            expect_heredoc_delim = 1;
+        } else if (tokens->type == DELIMITER) {
+            if (!expect_heredoc_delim) {
+                fprintf(stderr, "Error: Unexpected delimiter '%s'\n", tokens->value);
+                return NULL;
+            }
+            add_redirection(current_command, HEREDOC, tokens->value);
+            expect_heredoc_delim = 0;
+        } else if (tokens->type == PIPE) {
+            if (!current_command) {
+                fprintf(stderr, "Error: Pipe without a preceding command\n");
+                return NULL;
+            }
+            current_command->pipe_next = 1;
+            current_command = NULL;
+        } else if (tokens->type == EXIT_STATUS) {
+            if (!current_command) {
+                current_command = new_command();
+                add_command(&command_list, current_command);
+            }
             char exit_status_str[12];
             snprintf(exit_status_str, sizeof(exit_status_str), "%d", WEXITSTATUS(status));
             add_argument(current_command, exit_status_str);
-            break;
-
-            default:
-                fprintf(stderr, "Error: Unexpected token type\n");
-                return NULL;
+        } else {
+            fprintf(stderr, "Error: Unexpected token type\n");
+            return NULL;
         }
 
         tokens = tokens->next;
