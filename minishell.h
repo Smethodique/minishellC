@@ -29,7 +29,6 @@ typedef enum {
     HEREDOC,
     FILENAME,
     DELIMITER,
-    OPTION,
     ENV_VAR,
     SINGLE_QUOTE,
     DOUBLE_QUOTE,
@@ -76,6 +75,8 @@ t_token *new_token(int type, const char *value);
 void add_token(t_token **head, t_token *new_token);
 t_token *tokenize_input(const char *input);
 void print_tokens(t_token *tokens);
+int my_mkstemp(char *template);
+char *handle_heredoc(const char *delimiter, int expand_vars);
 
 // New function prototypes for command parsing
 t_command *new_command();
