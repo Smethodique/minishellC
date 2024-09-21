@@ -38,6 +38,7 @@ typedef enum {
 
 typedef struct s_token {
     int type;
+     int space;
     char *value;
     struct s_token *next;
 } t_token;
@@ -74,6 +75,7 @@ void all_signals();
 t_token *new_token(int type, const char *value);
 void add_token(t_token **head, t_token *new_token);
 t_token *tokenize_input(const char *input);
+char *remove_quotes(const char *str);
 void print_tokens(t_token *tokens);
 int my_mkstemp(char *template);
 char *handle_heredoc(const char *delimiter, int expand_vars);

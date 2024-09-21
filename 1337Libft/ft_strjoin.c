@@ -36,6 +36,5 @@ char	*ft_strjoin(char *line, char *buff)
 	while (buff[j] != '\0')
 		str[i++] = buff[j++];
 	str[ft_strlen(line) + ft_strlen(buff)] = '\0';
-	free(line);
 	return (str);
 }

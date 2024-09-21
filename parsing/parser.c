@@ -17,6 +17,7 @@ t_token *new_token(int type, const char *value) {
     t_token *token = malloc(sizeof(t_token));
     token->type = type;
     token->value = ft_strdup(value);
+    token->space = 0;
     token->next = NULL;
     return token;
 }
@@ -149,6 +150,7 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
     int start = ++(*i);
     char *quoted, *result, *final_result;
     t_token_type type;
+    t_token *last_token = NULL; // To keep track of the last added token
 
     while (*i < len && input[*i] != quote_char) {
         if (quote_char == '"' && input[*i] == '\\' && *i + 1 < len &&
@@ -156,13 +158,14 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
             (*i)++;
         (*i)++;
     }
-
     if (*i >= len) {
         ft_putstr_fd("Error: unclosed quote\n", 2);
         return 0;
     }
 
     quoted = ft_substr(input, start, *i - start);
+    printf("quoted: %s\n", quoted);
+
     if (!quoted)
         return 0;
 
@@ -191,15 +194,16 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
     else
         type = ARG;
 
-    // If the last token is of the same type, concatenate the result
+    // Add the token without concatenation
     if (final_result[0] != '\0') {
-        if (*tokens && (*tokens)->type == (int)type) {
-            char *new_value = ft_strjoin((*tokens)->value, final_result);
-            free((*tokens)->value);
-            (*tokens)->value = new_value;
-        } else {
-            add_token(tokens, new_token(type, final_result));
-        }
+        last_token = new_token(type, final_result);  // Create new token
+        add_token(tokens, last_token);               // Add it to the list
+    }
+
+    // Check if the next character is a space and the current token is an argument
+    if (input[*i + 1] == ' ' && type == ARG && last_token) {
+        last_token->space = 1;  // Set the space flag on the last token (which is "D")
+        printf("space: %d for token %s \n", last_token->space, last_token->value);  // This will print "D"
     }
 
     free(final_result);
@@ -207,6 +211,7 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
 
     return 1;
 }
+
 // Function to handle redirections
 void handle_redirections(int *i, char current_char, char next_char, t_token **tokens, int *expect_filename) {
     if (current_char == '<') {
@@ -283,7 +288,7 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
     int start = *i;
     int in_quotes = 0;
     char quote_char = 0;
-
+    int space = 0;
     while (*i < len) {
         if (input[*i] == '\'' || input[*i] == '"') {
             if (!in_quotes) {
@@ -293,12 +298,17 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
                 in_quotes = 0;
             }
         } else if (!in_quotes && (isspace(input[*i]) || input[*i] == '|' || input[*i] == '<' || input[*i] == '>')) {
-            break;
+             if (input[*i] == ' ') {
+                space = 1;
+             }
+          break;
         }
         (*i)++;
     }
 
     char *value = ft_substr(input, start, *i - start);
+    //add space flag
+
     if (!value) {
         ft_putstr_fd("Error: Memory allocation failed\n", 2);
         return;
@@ -324,11 +334,49 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
 
     // Only add the token if it's not an empty string
     if (expanded_value[0] != '\0') {
-        add_token(tokens, new_token(type, expanded_value));
+       t_token *new = new_token(type, expanded_value);
+       new->space = space;
+        add_token(tokens, new);
     }
 
     free(expanded_value);
 }
+
+void concatinate(t_token **tokens) {
+    t_token *current = *tokens;
+
+    while (current) {
+        if (current->type == COMMANDE)
+      {
+            current = current->next;
+            continue;
+        }
+
+        if (current->type == ARG)
+        {
+            t_token *next = current->next;
+            while (next && next->type == ARG) {
+                if (current->space == 1 || next->space == 1)
+                  break;
+                 else
+                {
+                    char *new_value = ft_strjoin(current->value, next->value);
+                    free(current->value);
+                    current->value = new_value;
+                    t_token *temp = next;
+                    current->next = next->next;
+                    free(temp->value);
+                    free(temp);
+                    next = current->next;
+                }
+            }
+        }
+        current = current->next;
+    }
+}
+
+
+
 t_token *tokenize_input(const char *input) {
     t_token *tokens = NULL;
     int i = 0;
@@ -401,6 +449,7 @@ t_token *tokenize_input(const char *input) {
 
         handle_command_or_argument(input, &i, len, &tokens);
     }
+      concatinate(&tokens);
 
     return tokens;
 }
@@ -423,13 +472,21 @@ t_command *new_command() {
 }
 
 void add_argument(t_command *cmd, char *arg) {
-    if (cmd->arg_count == 0) {
-        cmd->name = ft_strdup(arg);
+    char *trimmed_arg = ft_strtrim(arg, " \t");
+    if (trimmed_arg == NULL) {
+        // Handle memory allocation error
+        fprintf(stderr, "Error: Memory allocation failed in add_argument\n");
+        return;
     }
-    cmd->args[cmd->arg_count++] = ft_strdup(arg);
-    cmd->args[cmd->arg_count] = NULL;  // Ensure null-termination
-}
 
+    if (cmd->arg_count == 0) {
+        cmd->name = ft_strdup(trimmed_arg);
+    }
+    cmd->args[cmd->arg_count++] = ft_strdup(trimmed_arg);
+    cmd->args[cmd->arg_count] = NULL;  // Ensure null-termination
+
+    free(trimmed_arg);
+}
 void add_redirection(t_command *cmd, int type, char *filename) {
     t_redirection *redir = malloc(sizeof(t_redirection));
     redir->type = type;
@@ -546,11 +603,16 @@ t_command *parse_tokens(t_token *tokens) {
                  char *heredoc_content = handle_heredoc(tokens->value, 1);
             char temp_filename[] = "/tmp/minishell_heredocXXXXXX";
             int fd = my_mkstemp(temp_filename);
+            //handle if file still empty
+
             if (fd == -1) {
                 perror("Error creating temporary file for heredoc");
                 free(heredoc_content);
                 return NULL;
                 }
+                //handle if file still empty
+                if (!heredoc_content)
+                        return NULL;
             write(fd, heredoc_content, strlen(heredoc_content));
             close(fd);
             free(heredoc_content);
@@ -617,30 +679,21 @@ void free_command_list(t_command *list) {
 
 void print_command_list(t_command *list) {
     while (list) {
-        if (list->name) {
-            printf("Command: %s\n", list->name);
-        } else {
-            printf("Command: (unnamed)\n");
+        printf("Command: %s\n", list->name);
+        printf("Arguments:");
+      //split the arguments and print them use split
+        for (int i = 0; i < list->arg_count; i++) {
+            printf(" %s", list->args[i]);
         }
 
-        printf("Arguments: ");
-           // printf args wirhot the name of the command
-        for (int i = 1; i < list->arg_count; i++) {
-            printf("%s", list->args[i]);
-        }
         printf("\n");
 
         t_redirection *redir = list->redirections;
         while (redir) {
-            printf("Redirection: type %d, file %s\n", redir->type, redir->filename);
+            printf("Redirection: %s -> %s\n", redir->type == INPUT ? "INPUT" : redir->type == OUTPUT ? "OUTPUT" : "APPEND", redir->filename);
             redir = redir->next;
         }
 
-        if (list->pipe_next) {
-            printf("Pipes to next command\n");
-        }
-
-        printf("\n");
         list = list->next;
     }
 }

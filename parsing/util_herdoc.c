@@ -116,6 +116,14 @@ char *expand_env_vars(char *input) {
 
 char *handle_heredoc(const char *delimiter, int expand_vars)
 {
+    if (!delimiter) {
+        fprintf(stderr, "Error: Null delimiter\n");
+        return NULL;
+    }
+
+    char *unquoted_delimiter = remove_quotes((char *)delimiter);
+    int is_quoted = (strcmp(delimiter, unquoted_delimiter) != 0);
+
     char *line;
     char *content = NULL;
     size_t content_size = 0;
@@ -127,19 +135,18 @@ char *handle_heredoc(const char *delimiter, int expand_vars)
             break;
         }
 
-        if (ft_strcmp(line, delimiter) == 0) {
+        if (ft_strcmp(line, unquoted_delimiter) == 0) {
             free(line);
             break;
         }
 
         char *processed_line = line;
-        //if we have quoted delimiter, we don't want to expand variables
-
-        if (expand_vars && *delimiter != '\'' && *delimiter != '"') {
+        if (expand_vars && !is_quoted) {
             processed_line = expand_env_vars(line);
             if (!processed_line) {
                 free(line);
                 free(content);
+                free(unquoted_delimiter);
                 return NULL; // Memory allocation failed
             }
         }
@@ -154,6 +161,7 @@ char *handle_heredoc(const char *delimiter, int expand_vars)
                 free(line);
                 if (expand_vars && processed_line != line) free(processed_line);
                 free(content);
+                free(unquoted_delimiter);
                 return NULL; // Memory allocation failed
             }
             content = new_content;
@@ -172,5 +180,6 @@ char *handle_heredoc(const char *delimiter, int expand_vars)
         content[content_size] = '\0';
     }
 
+    free(unquoted_delimiter);
     return content;
 }
