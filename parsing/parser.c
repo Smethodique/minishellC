@@ -103,27 +103,41 @@ char *expand_variables(const char *str) {
     char *temp = (char *)str;
     char *env_pos;
 
-    while ((env_pos = strchr(temp, '$')) && env_pos[1] != '\0' && env_pos[1] != ' ' && env_pos[1] != ' ') {
-        char *before_env = ft_substr(temp, 0, env_pos - temp);
-        char *env_value = get_env_value(env_pos + 1);
-
-        char *new_result = ft_strjoin(result, before_env);
-
-        result = new_result;
-
-        if (env_value) {
-            new_result = ft_strjoin(result, env_value);
-
+    while ((env_pos = strchr(temp, '$')) && env_pos[1] != '\0') {
+        // Check if the next character is a double quote
+        if (env_pos[1] == '"') {
+            char *before_env = ft_substr(temp, 0, env_pos - temp);
+            char *new_result = ft_strjoin(result, before_env);
+            free(result);
+            free(before_env);
             result = new_result;
-        }
 
-        temp = env_pos + 1;
-        while (*temp && (isalnum(*temp) || *temp == '_'))
-            temp++;
+            // Skip the $ and the double quote
+            temp = env_pos + 1;
+        } else {
+            char *before_env = ft_substr(temp, 0, env_pos - temp);
+            char *env_value = get_env_value(env_pos + 1);
+
+            char *new_result = ft_strjoin(result, before_env);
+            free(result);
+            free(before_env);
+            result = new_result;
+
+            if (env_value) {
+                new_result = ft_strjoin(result, env_value);
+                free(result);
+                free(env_value);
+                result = new_result;
+            }
+
+            temp = env_pos + 1;
+            while (*temp && (isalnum(*temp) || *temp == '_'))
+                temp++;
+        }
     }
 
     char *final_result = ft_strjoin(result, temp);
-
+    free(result);
 
     // Remove quotes from the final result
     char *unquoted_result = remove_quotes(final_result);
@@ -188,7 +202,6 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
 
     printf("final_result: %s\n", final_result);
 
-    // Determine if it's a command or an argument
     if (*tokens == NULL || (*tokens)->type == PIPE)
         type = COMMANDE;
     else
@@ -211,7 +224,6 @@ int handle_quotes(const char *input, int *i, int len, char quote_char, t_token *
 
     return 1;
 }
-
 // Function to handle redirections
 void handle_redirections(int *i, char current_char, char next_char, t_token **tokens, int *expect_filename) {
     if (current_char == '<') {
@@ -266,10 +278,15 @@ void handle_env_var(const char *input, int *i, int len, t_token **tokens) {
             add_token(tokens, new_token(ARG, env_value));
         } else {
             // If not quoted, split and add each part as a separate token
-            char **split_value = ft_split(env_value, ' ');
+            char **split_value = ft_splitD(env_value, " ");
+            printf("split_value: %s\n", split_value[0]);
             int j = 0;
             while (split_value[j] != NULL) {
-                add_token(tokens, new_token(ARG, split_value[j]));
+                t_token *new = new_token(ARG, split_value[j]);
+                if (split_value[j + 1] != NULL) {
+                    new->space = 1;  // Set the space flag if there are more tokens
+                }
+                add_token(tokens, new);
                 free(split_value[j]);
                 j++;
             }
@@ -289,6 +306,13 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
     int in_quotes = 0;
     char quote_char = 0;
     int space = 0;
+    t_token *last_token = *tokens;
+
+    // Find the last token
+    while (last_token && last_token->next) {
+        last_token = last_token->next;
+    }
+
     while (*i < len) {
         if (input[*i] == '\'' || input[*i] == '"') {
             if (!in_quotes) {
@@ -298,16 +322,15 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
                 in_quotes = 0;
             }
         } else if (!in_quotes && (isspace(input[*i]) || input[*i] == '|' || input[*i] == '<' || input[*i] == '>')) {
-             if (input[*i] == ' ') {
+            if (input[*i] == ' ') {
                 space = 1;
-             }
-          break;
+            }
+            break;
         }
         (*i)++;
     }
 
     char *value = ft_substr(input, start, *i - start);
-    //add space flag
 
     if (!value) {
         ft_putstr_fd("Error: Memory allocation failed\n", 2);
@@ -315,13 +338,7 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
     }
 
     t_token_type type = ARG;
-    int j = 0;
-
-    while (j < start && isspace(input[j])) {
-        j++;
-    }
-
-    if (j == start || (j > 0 && input[j-1] == '|')) {
+    if (last_token == NULL || last_token->type == PIPE) {
         type = COMMANDE;
     }
 
@@ -332,37 +349,31 @@ void handle_command_or_argument(const char *input, int *i, int len, t_token **to
         return;
     }
 
-    // Only add the token if it's not an empty string
     if (expanded_value[0] != '\0') {
-       t_token *new = new_token(type, expanded_value);
-       new->space = space;
+        t_token *new = new_token(type, expanded_value);
+        new->space = space;
         add_token(tokens, new);
     }
 
     free(expanded_value);
 }
-
 void concatinate(t_token **tokens) {
     t_token *current = *tokens;
 
     while (current) {
-        if (current->type == COMMANDE)
-      {
-            current = current->next;
-            continue;
-        }
-
-        if (current->type == ARG)
-        {
+        if (current->type == COMMANDE || current->type == ARG) {
             t_token *next = current->next;
-            while (next && next->type == ARG) {
-                if (current->space == 1 || next->space == 1)
-                  break;
-                 else
-                {
+            while (next && (next->type == ARG || next->type == COMMANDE)) {
+                if (current->space == 1 || next->space == 1) {
+                    // If there's a space, stop concatenation.
+                    break;
+                } else {
+                    // Concatenate arguments if there's no space and not within quotes.
                     char *new_value = ft_strjoin(current->value, next->value);
                     free(current->value);
                     current->value = new_value;
+
+                    // Remove the next token from the list
                     t_token *temp = next;
                     current->next = next->next;
                     free(temp->value);
@@ -509,38 +520,55 @@ void add_command(t_command **list, t_command *cmd) {
 
 int validate_syntax(t_token *tokens) {
     int command_count = 0;
+    int redirection_count = 0;
     t_token *current = tokens;
 
     // Ensure the first token is not a pipe
     if (current && current->type == PIPE) {
-        fprintf(stderr, "Error: Invalid syntax near '|'\n");
+        fprintf(stderr, "Error: Invalid syntax near '%s'\n", current->value);
         return 0;
     }
 
     while (current) {
-        if (current->type == COMMANDE) {
+        if (current->type == COMMANDE || current->type == ARG) {
             command_count++;
+            redirection_count = 0;  // Reset redirection count after a command
         } else if (current->type == PIPE) {
             // Ensure a command exists before the pipe
-            if (command_count == 0) {
+            if (command_count == 0 && redirection_count == 0) {
                 fprintf(stderr, "Error: Invalid syntax near '|'\n");
                 return 0;
             }
-            // Reset command count after a pipe and ensure the next token is a command
+            // Reset counts after a pipe
             command_count = 0;
+            redirection_count = 0;
+        } else if (current->type == OUTPUT || current->type == APPEND || current->type == INPUT || current->type == HEREDOC) {
+            // Ensure the next token exists
+            if (!current->next) {
+                fprintf(stderr, "Error: Missing filename or delimiter after '%s'\n", current->value);
+                return 0;
+            }
+            // For heredoc, the next token can be any type (used as a delimiter)
+            // For other redirections, ensure the next token is a filename
+            if (current->type != HEREDOC && current->next->type != FILENAME) {
+                fprintf(stderr, "Error: Invalid token after '%s'\n", current->value);
+                return 0;
+            }
+            // Skip the filename/delimiter token
+            current = current->next;
+            redirection_count++;
         }
         current = current->next;
-
-
-
     }
 
-  
+    // Ensure there's at least one command or redirection in the entire input
+    if (command_count == 0 && redirection_count == 0) {
+        fprintf(stderr, "Error: No valid commands or redirections found\n");
+        return 0;
+    }
 
     return 1;
 }
-
-
 t_command *parse_tokens(t_token *tokens) {
     t_command *command_list = NULL;
     t_command *current_command = NULL;
@@ -558,7 +586,7 @@ t_command *parse_tokens(t_token *tokens) {
                 add_command(&command_list, current_command);
             }
             add_argument(current_command, tokens->value);
-        } else if (tokens->type == ARG ) {
+        } else if (tokens->type == ARG) {
             if (!current_command) {
                 current_command = new_command();
                 add_command(&command_list, current_command);
@@ -570,8 +598,6 @@ t_command *parse_tokens(t_token *tokens) {
                 add_command(&command_list, current_command);
             }
             char *env_value = getenv(tokens->value + 1);
-
-            printf("tokens->value + 1: %s\n", tokens->value + 1);
             if (env_value) {
                 add_argument(current_command, env_value);
             } else {
@@ -598,36 +624,30 @@ t_command *parse_tokens(t_token *tokens) {
             if (!expect_heredoc_delim) {
                 fprintf(stderr, "Error: Unexpected delimiter '%s'\n", tokens->value);
                 return NULL;
-                }
-                //it take two parameters, the first one is the delimiter and the second one is the expand_vars
-                 char *heredoc_content = handle_heredoc(tokens->value, 1);
+            }
+            char *heredoc_content = handle_heredoc(tokens->value, 1);
             char temp_filename[] = "/tmp/minishell_heredocXXXXXX";
             int fd = my_mkstemp(temp_filename);
-            //handle if file still empty
-
             if (fd == -1) {
                 perror("Error creating temporary file for heredoc");
                 free(heredoc_content);
                 return NULL;
-                }
-                //handle if file still empty
-                if (!heredoc_content)
-                        return NULL;
+            }
+            if (!heredoc_content) {
+                return NULL;
+            }
             write(fd, heredoc_content, strlen(heredoc_content));
             close(fd);
             free(heredoc_content);
             add_redirection(current_command, HEREDOC, temp_filename);
             expect_heredoc_delim = 0;
-        }
-
-
-         else if (tokens->type == PIPE) {
+        } else if (tokens->type == PIPE) {
             if (!current_command) {
                 fprintf(stderr, "Error: Pipe without a preceding command\n");
                 return NULL;
             }
             current_command->pipe_next = 1;
-            current_command = NULL;
+            current_command = NULL; // Reset current_command to detect new command after pipe
         } else if (tokens->type == EXIT_STATUS) {
             if (!current_command) {
                 current_command = new_command();
