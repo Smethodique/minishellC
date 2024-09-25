@@ -99,31 +99,34 @@ char	*remove_quotes(const char *str)
 	int		j;
 	int		in_quotes;
 	char	quote_char;
+	int	i;
 
 	len = strlen(str);
 	result = malloc(len + 1);
 	j = 0;
 	in_quotes = 0;
 	quote_char = 0;
-	for (int i = 0; i < len; i++)
-	{
-		if (str[i] == '\'' || str[i] == '"')
-		{
-			if (!in_quotes)
-			{
-				in_quotes = 1;
-				quote_char = str[i];
-			}
-			else if (str[i] == quote_char)
-			{
-				in_quotes = 0;
-			}
-		}
-		else
-		{
-			result[j++] = str[i];
-		}
-	}
+	i = 0; 
+	 while (i < len)
+    {
+        if (str[i] == '\'' || str[i] == '"')
+        {
+            if (!in_quotes)
+            {
+                in_quotes = 1;
+                quote_char = str[i];
+            }
+            else if (str[i] == quote_char)
+            {
+                in_quotes = 0;
+            }
+        }
+        else
+        {
+            result[j++] = str[i];
+        }
+        i++;
+    }
 	result[j] = '\0';
 	return (result);
 }
