@@ -18,6 +18,18 @@ void	add_token(t_token **head, t_token *new_token)
 		current->next = new_token;
 	}
 }
+void	free_tokens(t_token *head) // Explicitly declare return type as void
+{
+	t_token *tmp;
+
+	while (head != NULL)
+	{
+		tmp = head;
+		head = head->next;
+		free(tmp->value); // Assuming ft_strdup allocates memory
+		free(tmp);
+	}
+}
 t_token	*new_token(int type, const char *value)
 {
 	t_token	*token;
@@ -61,13 +73,14 @@ void	handle_heredoc_delim(const char *input, int *i, int len,
 	}
 	delimiter = ft_substr(input, start, *i - start);
 	add_token(tokens, new_token(DELIMITER, delimiter));
+	free(delimiter);
 }
 
 // Function to handle quotes
 char	*get_env_value(const char *env_name)
 {
 	int		status;
-		char exit_status_str[12];
+	char	exit_status_str[12];
 	char	*env_end;
 	char	*name;
 	char	*value;
@@ -97,37 +110,40 @@ char	*remove_quotes(const char *str)
 	int		len;
 	char	*result;
 	int		j;
-	int		in_quotes;
-	char	quote_char;
-	int	i;
+	int		in_double_quotes;
+	int		in_single_quotes;
 
 	len = strlen(str);
 	result = malloc(len + 1);
 	j = 0;
-	in_quotes = 0;
-	quote_char = 0;
-	i = 0; 
-	 while (i < len)
-    {
-        if (str[i] == '\'' || str[i] == '"')
-        {
-            if (!in_quotes)
-            {
-                in_quotes = 1;
-                quote_char = str[i];
-            }
-            else if (str[i] == quote_char)
-            {
-                in_quotes = 0;
-            }
-        }
-        else
-        {
-            result[j++] = str[i];
-        }
-        i++;
-    }
+	in_double_quotes = 0;
+	in_single_quotes = 0;
+	if (!result)
+		return (NULL);
+	for (int i = 0; i < len; i++)
+	{
+		if (str[i] == '"')
+		{
+			in_double_quotes = !in_double_quotes;
+			// Do not add double quotes to the result
+		}
+		else if (str[i] == '\'')
+		{
+			in_single_quotes = !in_single_quotes;
+			result[j++] = str[i]; // Keep single quotes
+		}
+		else
+		{
+			result[j++] = str[i];
+		}
+	}
 	result[j] = '\0';
+	// If double quotes were not properly closed, return the original string
+	if (in_double_quotes)
+	{
+		free(result);
+		return (strdup(str));
+	}
 	return (result);
 }
 char	*expand_variables(const char *str)
@@ -135,9 +151,9 @@ char	*expand_variables(const char *str)
 	char	*result;
 	char	*temp;
 	char	*env_pos;
-	char	*new_result;
 	char	*before_env;
 	char	*env_value;
+	char	*new_result;
 	char	*final_result;
 	char	*unquoted_result;
 
@@ -200,71 +216,131 @@ char	*remove_backslashes(const char *str)
 	*write_ptr = '\0';
 	return (result);
 }
+int	calculate_quote_num(const char *input, int len, int *j, int *p)
+{
+	*j = 0;
+	*p = 0;
+	for (int i = 0; i < len; i++)
+	{
+		if (input[i] == '\'')
+		{
+			(*j)++;
+		}
+		else if (input[i] == '"')
+		{
+			(*p)++;
+		}
+	}
+	if (*j % 2 != 0 || *p % 2 != 0)
+	{
+		return (0);
+	}
+	return (1);
+}
+
+char	*remove_single_quotes(const char *str)
+{
+	int		len;
+	char	*result;
+	int		j;
+	int		in_single_quotes;
+
+	len = strlen(str);
+	result = malloc(len + 1);
+	j = 0;
+	in_single_quotes = 0;
+	if (!result)
+		return (NULL);
+	for (int i = 0; i < len; i++)
+	{
+		if (str[i] == '\'')
+		{
+			in_single_quotes = !in_single_quotes;
+		}
+		else
+		{
+			result[j++] = str[i];
+		}
+	}
+	result[j] = '\0';
+	// If single quotes were not properly closed, return the original string
+	if (in_single_quotes)
+	{
+		free(result);
+		printf("Error: unclosed quote\n");
+		return (strdup(str));
+	}
+	return (result);
+}
 int	handle_quotes(const char *input, int *i, int len, char quote_char,
 		t_token **tokens)
 {
-	int				start;
+	int				escaped;
+	t_token			*last_token;
 	t_token_type	type;
 
-	start = ++(*i);
+	int start = ++(*i); // Move past the opening quote
+	escaped = 0;
 	char *quoted, *result, *final_result;
-	t_token *last_token = NULL; // To keep track of the last added token
-	while (*i < len && input[*i] != quote_char)
+	last_token = NULL;
+	while (*i < len)
 	{
-		if (quote_char == '"' && input[*i] == '\\' && *i + 1 < len &&
-			(input[*i + 1] == '"' || input[*i + 1] == '\\' || input[*i
-					+ 1] == '$'))
-			(*i)++;
+		if (input[*i] == '\\' && !escaped && quote_char == '"')
+		{
+			escaped = 1;
+		}
+		else if (input[*i] == quote_char && !escaped)
+		{
+			break ;
+		}
+		else
+		{
+			escaped = 0;
+		}
 		(*i)++;
 	}
-	if (*i >= len)
+	if (*i >= len || input[*i] != quote_char)
 	{
 		ft_putstr_fd("Error: unclosed quote\n", 2);
-		return (0);
+		// Instead of returning, we'll add the unclosed quote as a token
+		quoted = ft_substr(input, start - 1, *i - start + 1);
+		if (!quoted)
+			return (0);
+		add_token(tokens, new_token(ARG, quoted));
+		free(quoted);
+		return (1);
 	}
 	quoted = ft_substr(input, start, *i - start);
-	printf("quoted: %s\n", quoted);
 	if (!quoted)
 		return (0);
 	if (quote_char == '"')
 	{
-		// Expand variables only in double quotes
 		result = expand_variables(quoted);
+		free(quoted);
+		final_result = remove_backslashes(result);
+		free(result);
 	}
 	else
-	{ // quote_char == '\''
-		// Don't expand variables in single quotes
-		result = ft_strdup(quoted);
+	{
+		final_result = quoted;
 	}
-	if (!result)
-		return (0);
-	final_result = remove_backslashes(result);
-	free(result);
 	if (!final_result)
 		return (0);
-	printf("final_result: %s\n", final_result);
-	if (*tokens == NULL || (*tokens)->type == PIPE)
-		type = COMMANDE;
-	else
-		type = ARG;
-	// Add the token without concatenation
-	if (final_result[0] != '\0')
+	type = (*tokens == NULL || (*tokens)->type == PIPE) ? COMMANDE : ARG;
+	last_token = new_token(type, final_result);
+	add_token(tokens, last_token);
+	if (*i + 1 < len && input[*i + 1] == ' ')
 	{
-		last_token = new_token(type, final_result); // Create new token
-		add_token(tokens, last_token);              // Add it to the list
-	}
-	// Check if the next character is a space and the current token is an argument
-	if (input[*i + 1] == ' ' && type == ARG && last_token)
-	{
-		last_token->space = 1;                                                    
-			// Set the space flag on the last token (which is "D")
-		printf("space: %d for token %s \n", last_token->space,
-				last_token->value); // This will print "D"
+		if (last_token != NULL)
+		{
+			last_token->space = 1;
+		}
 	}
 	free(final_result);
-	(*i)++;
+	(*i)++; // Move past the closing quote
 	return (1);
 }
+
 // Function to handle redirections
 void	handle_redirections(int *i, char current_char, char next_char,
 		t_token **tokens, int *expect_filename)
@@ -349,7 +425,7 @@ void	handle_env_var(const char *input, int *i, int len, t_token **tokens)
 		else
 		{
 			// If not quoted, split and add each part as a separate token
-			split_value = ft_splitD(env_value, " ");
+			split_value = ft_splitD(env_value, " \t");
 			printf("split_value: %s\n", split_value[0]);
 			j = 0;
 			while (split_value[j] != NULL)
@@ -358,7 +434,7 @@ void	handle_env_var(const char *input, int *i, int len, t_token **tokens)
 				if (split_value[j + 1] != NULL)
 				{
 					new->space = 1;
-						// Set the space flag if there are more tokens
+					// Set the space flag if there are more tokens
 				}
 				add_token(tokens, new);
 				free(split_value[j]);
@@ -375,65 +451,98 @@ void	handle_env_var(const char *input, int *i, int len, t_token **tokens)
 }
 
 // Function to handle commands and arguments
+int	is_quoted(const char *str)
+{
+	int	in_single_quotes;
+	int	in_double_quotes;
+
+	in_single_quotes = 0;
+	in_double_quotes = 0;
+	for (int i = 0; str[i] != '\0'; i++)
+	{
+		if (str[i] == '\'' && !in_double_quotes)
+		{
+			in_single_quotes = !in_single_quotes;
+		}
+		else if (str[i] == '"' && !in_single_quotes)
+		{
+			in_double_quotes = !in_double_quotes;
+		}
+	}
+	return (in_single_quotes || in_double_quotes);
+}
+char	*remove_enclosing_quotes(char *str)
+{
+	int	len;
+
+	len = strlen(str);
+	if (len >= 2 && ((str[0] == '\'' && str[len - 1] == '\'') || (str[0] == '"'
+				&& str[len - 1] == '"')))
+	{
+		str[len - 1] = '\0';
+		return (str + 1);
+	}
+	return (str);
+}
 
 void	handle_command_or_argument(const char *input, int *i, int len,
 		t_token **tokens)
 {
 	int				start;
-	int				in_quotes;
-	char			quote_char;
-	int				space;
-	t_token			*last_token;
+	int				in_single_quotes;
+	int				in_double_quotes;
+	int				escaped;
 	char			*value;
 	t_token_type	type;
-	char			*expanded_value;
 	t_token			*new;
+	t_token			*last_token;
+	char			*expanded_value;
+	char			*final_value;
 
 	start = *i;
-	in_quotes = 0;
-	quote_char = 0;
-	space = 0;
+	in_single_quotes = 0;
+	in_double_quotes = 0;
+	escaped = 0;
 	last_token = *tokens;
-	// Find the last token
 	while (last_token && last_token->next)
 	{
 		last_token = last_token->next;
 	}
 	while (*i < len)
 	{
-		if (input[*i] == '\'' || input[*i] == '"')
+		if (input[*i] == '\\' && !escaped)
 		{
-			if (!in_quotes)
-			{
-				in_quotes = 1;
-				quote_char = input[*i];
-			}
-			else if (input[*i] == quote_char)
-			{
-				in_quotes = 0;
-			}
+			escaped = 1;
 		}
-		else if (!in_quotes && (isspace(input[*i]) || input[*i] == '|'
-					|| input[*i] == '<' || input[*i] == '>'))
+		else if (input[*i] == '\'' && !in_double_quotes && !escaped)
 		{
-			if (input[*i] == ' ')
-			{
-				space = 1;
-			}
+			in_single_quotes = !in_single_quotes;
+		}
+		else if (input[*i] == '"' && !in_single_quotes && !escaped)
+		{
+			in_double_quotes = !in_double_quotes;
+		}
+		else if (!in_single_quotes && !in_double_quotes && !escaped &&
+					(isspace(input[*i]) || input[*i] == '|' || input[*i] == '<'
+							|| input[*i] == '>'))
+		{
 			break ;
 		}
+		escaped = 0;
 		(*i)++;
 	}
-	value = ft_substr(input, start, *i - start);
-	if (!value)
+	// Check for unclosed quotes
+	if (in_single_quotes || in_double_quotes)
 	{
-		ft_putstr_fd("Error: Memory allocation failed\n", 2);
+		fprintf(stderr, "Error: Unclosed quote\n");
+		*i = len; // Move to the end of the input
 		return ;
 	}
-	type = ARG;
-	if (last_token == NULL || last_token->type == PIPE)
+	value = strndup(input + start, *i - start);
+	if (!value)
 	{
-		type = COMMANDE;
+		fprintf(stderr, "Error: Memory allocation failed\n");
+		return ;
 	}
 	expanded_value = expand_variables(value);
 	free(value);
@@ -441,50 +550,63 @@ void	handle_command_or_argument(const char *input, int *i, int len,
 	{
 		return ;
 	}
-	if (expanded_value[0] != '\0')
-	{
-		new = new_token(type, expanded_value);
-		new->space = space;
-		add_token(tokens, new);
-	}
+	final_value = remove_single_quotes(expanded_value);
 	free(expanded_value);
+	if (!final_value)
+	{
+		return ;
+	}
+	if (*tokens == NULL || last_token->type == PIPE)
+	{
+		type = COMMANDE;
+	}
+	else
+	{
+		type = ARG;
+	}
+	new = new_token(type, final_value);
+	new->space = (input[*i] == ' ');
+	add_token(tokens, new);
+	free(final_value);
 }
+
 void	concatinate(t_token **tokens)
 {
 	t_token	*current;
 	t_token	*next;
 	char	*new_value;
-	t_token	*temp;
 
 	current = *tokens;
-	while (current)
+	while (current && current->next)
 	{
-		if (current->type == COMMANDE || current->type == ARG)
+		next = current->next;
+		// Check if the current and next tokens should be concatenated
+		if ((current->type == 1 || current->type == 0) &&
+			(next->type == 1 || next->type == 0) &&
+			!current->space)
 		{
-			next = current->next;
-			while (next && (next->type == ARG || next->type == COMMANDE))
+			// Concatenate the token values
+			new_value = malloc(strlen(current->value) + strlen(next->value)
+					+ 1);
+			if (!new_value)
 			{
-				if (current->space == 1 || next->space == 1)
-				{
-					// If there's a space, stop concatenation.
-					break ;
-				}
-				else
-				{
-					// Concatenate arguments if there's no space and not within quotes.
-					new_value = ft_strjoin(current->value, next->value);
-					free(current->value);
-					current->value = new_value;
-					// Remove the next token from the list
-					temp = next;
-					current->next = next->next;
-					free(temp->value);
-					free(temp);
-					next = current->next;
-				}
+				// Handle memory allocation failure
+				return ;
 			}
+			strcpy(new_value, current->value);
+			strcat(new_value, next->value);
+			// Update the current token
+			free(current->value);
+			current->value = new_value;
+			// Remove the next token from the list
+			current->next = next->next;
+			free(next->value);
+			free(next);
 		}
-		current = current->next;
+		else
+		{
+			current = current->next;
+		}
 	}
 }
 
@@ -495,7 +617,6 @@ t_token	*tokenize_input(const char *input)
 	int		len;
 	int		expect_heredoc_delim;
 	int		expect_filename;
-	char	quote_char;
 	char	current_char;
 	char	next_char;
 
@@ -504,12 +625,11 @@ t_token	*tokenize_input(const char *input)
 	len = strlen(input);
 	expect_heredoc_delim = 0;
 	expect_filename = 0;
-	quote_char = '\0';
 	while (i < len)
 	{
 		current_char = input[i];
 		next_char = (i + 1 < len) ? input[i + 1] : '\0';
-		if (current_char == '<' && next_char == '<' && quote_char == '\0')
+		if (current_char == '<' && next_char == '<')
 		{
 			handlee_heredoc(&i, &tokens);
 			expect_heredoc_delim = 1;
@@ -521,35 +641,32 @@ t_token	*tokenize_input(const char *input)
 			expect_heredoc_delim = 0;
 			continue ;
 		}
-		if ((current_char == '\'' || current_char == '"') && quote_char == '\0')
+		if (current_char == '\'' || current_char == '"')
 		{
-			quote_char = current_char;
-			if (!handle_quotes(input, &i, len, quote_char, &tokens))
+			if (!handle_quotes(input, &i, len, current_char, &tokens))
 			{
-				return (NULL);
+				return NULL;
 			}
-			// Skip the closing quote
-			quote_char = '\0';
 			continue ;
 		}
-		if (isspace(current_char) && quote_char == '\0')
+		if (isspace(current_char))
 		{
 			i++;
 			continue ;
 		}
-		if (current_char == '$' && next_char == '?' && quote_char == '\0')
+		if (current_char == '$' && next_char == '?')
 		{
 			add_token(&tokens, new_token(EXIT_STATUS, "$?"));
 			i += 2;
 			continue ;
 		}
-		if (current_char == '|' && quote_char == '\0')
+		if (current_char == '|')
 		{
 			add_token(&tokens, new_token(PIPE, "|"));
 			i++;
 			continue ;
 		}
-		if ((current_char == '<' || current_char == '>') && quote_char == '\0')
+		if (current_char == '<' || current_char == '>')
 		{
 			handle_redirections(&i, current_char, next_char, &tokens,
 					&expect_filename);
@@ -561,7 +678,7 @@ t_token	*tokenize_input(const char *input)
 			expect_filename = 0;
 			continue ;
 		}
-		if (current_char == '$' && quote_char == '\0')
+		if (current_char == '$')
 		{
 			handle_env_var(input, &i, len, &tokens);
 			continue ;
@@ -569,15 +686,7 @@ t_token	*tokenize_input(const char *input)
 		handle_command_or_argument(input, &i, len, &tokens);
 	}
 	concatinate(&tokens);
-	return (tokens);
-}
-void	print_tokens(t_token *tokens)
-{
-	while (tokens)
-	{
-		printf("Type: %d, Value: %s\n", tokens->type, tokens->value);
-		tokens = tokens->next;
-	}
+	return tokens;
 }
 
 t_command	*new_command(void)
@@ -587,12 +696,12 @@ t_command	*new_command(void)
 	cmd = malloc(sizeof(t_command));
 	cmd->name = NULL;
 	cmd->args = malloc(sizeof(char *) * 64);
-		// Start with space for 64 arguments
+	// Start with space for 64 arguments
 	cmd->arg_count = 0;
 	cmd->pipe_next = 0;
 	cmd->redirections = NULL;
 	cmd->next = NULL;
-	return (cmd);
+	return cmd;
 }
 
 void	add_argument(t_command *cmd, char *arg)
@@ -711,21 +820,28 @@ int	validate_syntax(t_token *tokens)
 	}
 	return 1;
 }
+void	print_tokens(t_token *tokens)
+{
+	while (tokens)
+	{
+		//print type and value
+		printf("Type: %d, Value: %s\n", tokens->type, tokens->value);
+		tokens = tokens->next;
+	}
+}
 t_command	*parse_tokens(t_token *tokens)
 {
 	t_command	*command_list;
 	t_command	*current_command;
-	int			expect_heredoc_delim;
 	int			status;
 	char		*env_value;
 	char		*heredoc_content;
-	char		temp_filename[sizeof("/tmp/minishell_heredocXXXXXX")]; ;
+	char		temp_filename[sizeof("/tmp/minishell_heredocXXXXXX")];
 	int			fd;
-			char exit_status_str[12];
+	char		exit_status_str[12];
 
 	command_list = NULL;
 	current_command = NULL;
-	expect_heredoc_delim = 0;
 	status = get_status();
 	if (!validate_syntax(tokens))
 	{
@@ -792,18 +908,13 @@ t_command	*parse_tokens(t_token *tokens)
 				current_command = new_command();
 				add_command(&command_list, current_command);
 			}
-			expect_heredoc_delim = 1;
-		}
-		else if (tokens->type == DELIMITER)
-		{
-			if (!expect_heredoc_delim)
+			if (!tokens->next || tokens->next->type != DELIMITER)
 			{
-				fprintf(stderr, "Error: Unexpected delimiter '%s'\n",
-						tokens->value);
+				fprintf(stderr, "Error: Missing delimiter after heredoc\n");
 				return NULL;
 			}
-			heredoc_content = handle_heredoc(tokens->value, 1);
-            ft_strcpy(temp_filename, "/tmp/minishell_heredocXXXXXX");
+			heredoc_content = handle_heredoc(tokens->next->value, 1);
+			ft_strcpy(temp_filename, "/tmp/minishell_heredocXXXXXX");
 			fd = my_mkstemp(temp_filename);
 			if (fd == -1)
 			{
@@ -811,15 +922,14 @@ t_command	*parse_tokens(t_token *tokens)
 				free(heredoc_content);
 				return NULL;
 			}
-			if (!heredoc_content)
+			if (heredoc_content)
 			{
-				return NULL;
+				write(fd, heredoc_content, strlen(heredoc_content));
+				free(heredoc_content);
 			}
-			write(fd, heredoc_content, strlen(heredoc_content));
 			close(fd);
-			free(heredoc_content);
 			add_redirection(current_command, HEREDOC, temp_filename);
-			expect_heredoc_delim = 0;
+			tokens = tokens->next; // Skip the delimiter token
 		}
 		else if (tokens->type == PIPE)
 		{
@@ -830,7 +940,13 @@ t_command	*parse_tokens(t_token *tokens)
 			}
 			current_command->pipe_next = 1;
 			current_command = NULL;
-				// Reset current_command to detect new command after pipe
+			// Check the next token after the pipe
+			if (tokens->next && tokens->next->type != INPUT
+				&& tokens->next->type != OUTPUT &&
+				tokens->next->type != APPEND && tokens->next->type != HEREDOC)
+			{
+				tokens->next->type = COMMANDE; // Set the type to COMMANDE
+			}
 		}
 		else if (tokens->type == EXIT_STATUS)
 		{
@@ -843,17 +959,7 @@ t_command	*parse_tokens(t_token *tokens)
 					WEXITSTATUS(status));
 			add_argument(current_command, exit_status_str);
 		}
-		else
-		{
-			fprintf(stderr, "Error: Unexpected token type\n");
-			return NULL;
-		}
 		tokens = tokens->next;
-	}
-	if (expect_heredoc_delim)
-	{
-		fprintf(stderr, "Error: Missing heredoc delimiter\n");
-		return NULL;
 	}
 	return command_list;
 }
@@ -900,7 +1006,6 @@ void	print_command_list(t_command *list)
 	{
 		printf("Command: %s\n", list->name);
 		printf("Arguments:");
-		//split the arguments and print them use split
 		for (int i = 0; i < list->arg_count; i++)
 		{
 			printf(" %s", list->args[i]);
@@ -911,10 +1016,15 @@ void	print_command_list(t_command *list)
 		{
 			printf("Redirection: %s -> %s\n",
 					redir->type == INPUT ? "INPUT" : redir->type == OUTPUT ? "OUTPUT"
-										: "APPEND",
+																			: "APPEND",
 					redir->filename);
 			redir = redir->next;
+		}
+		if (list->pipe_next)
+		{
+			printf("Pipe to the next command\n");
 		}
 		list = list->next;
 	}
 }
+
