@@ -1,5 +1,4 @@
-#include "minishell.h"
-
+   #include "minishell.h"
 
 
 void init_shell()
@@ -23,7 +22,7 @@ void init_shell()
                     print_command_list(commands);  // Print parsed commands for debugging
                     free_command_list(commands);
                 }
-                // TODO: Free tokens
+                free_tokens(tokens);  // Free tokens
             }
             add_history(line);
         }
@@ -33,5 +32,6 @@ void init_shell()
 int main()
 {
     init_shell();
+    // free_tokens(tokens);  // Removed as tokens is not defined in main
     return 0;
 }    
